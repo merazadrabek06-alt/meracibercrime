@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="kk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MERA Scam Detector</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@2/dist/tesseract.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:sans-serif;}
+body{background:linear-gradient(135deg,#4facfe,#8e44ad);display:flex;justify-content:center;align-items:center;min-height:100vh;}
+.container{background:rgba(255,255,255,0.15);backdrop-filter:blur(20px);padding:25px;border-radius:20px;width:420px;color:white;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,0.3);}
+.logo{font-size:28px;font-weight:bold;margin-bottom:15px;}
+.logo span{font-size:40px;display:block;}
+input,button,select,textarea{width:100%;margin-top:10px;padding:10px;border:none;border-radius:10px;}
+button{background:linear-gradient(135deg,#00c6ff,#0072ff);color:white;cursor:pointer;}
+.call-btn{background:red;}
+.result{margin-top:15px;padding:15px;border-radius:10px;}
+.safe{background:#2ecc71;}
+.warning{background:#f1c40f;}
+.danger{background:#e74c3c;}
+.quiz{margin-top:20px;padding:15px;background:rgba(0,0,0,0.2);border-radius:15px;}
+.nickname-display{position:absolute;top:15px;right:15px;background:rgba(0,0,0,0.3);padding:5px 10px;border-radius:10px;}
+</style>
+</head>
+<body>
+<div class="container" id="loginScreen">
+  <div class="logo"><span>🛡️</span>MERA Security</div>
+  <input type="text" id="nickname" placeholder="Nickname">
+  <input type="password" id="password" placeholder="Password">
+  <button onclick="registerOrLogin()">Кіру / Тіркелу</button>
+  <div id="loginResult" class="result"></div>
+</div>
+
+<div class="container" id="mainScreen" style="display:none;position:relative;">
+  <div class="nickname-display" id="nicknameDisplay"></div>
+  <div class="logo"><span>🛡️</span>MERA Security</div>
+  <select id="lang" onchange="updateTexts()">
+    <option value="kz">Қазақша</option>
+    <option value="ru">Русский</option>
+    <option value="en">English</option>
+  </select>
+
+  <textarea id="message" placeholder="Мәтінді енгізіңіз..."></textarea>
+  <button onclick="checkMessage()">Тексеру</button>
+  <button onclick="checkLink()">🔗 Сілтемені тексеру</button>
+  <input type="file" id="imageInput" accept="image/*">
+  <button onclick="analyzeImage()">📸 Фото</button>
+  <a href="tel:102"><button class="call-btn">📞 102</button></a>
+  <div id="result" class="result"></div>
+
+  <div class="quiz">
+    <h3 id="question"></h3>
+    <button onclick="answer(0)" id="opt0"></button>
+    <button onclick="answer(1)" id="opt1"></button>
+    <div id="quizResult"></div>
+    <button onclick="restartQuiz()" id="restartBtn" style="display:none;">🔄</button>
+  </div>
+</div>
+
+<script>
+/* 🌍 Language texts */
+const texts = {
+  kz:{restart:"Тесті қайта тапсыру",correct:"✅ Дұрыс!",wrong:"❌ Қате!",result:"🏆 Нәтиже",safe:"✅ Қауіпсіз",danger:"⚠️ Алаяқтық болуы мүмкін!",warning:"⚠️ Күмәнді"},
+  ru:{restart:"Пройти тест заново",correct:"✅ Верно!",wrong:"❌ Неверно!",result:"🏆 Результат",safe:"✅ Безопасно",danger:"⚠️ Мошенничество!",warning:"⚠️ Подозрительно"},
+  en:{restart:"Restart Quiz",correct:"✅ Correct!",wrong:"❌ Wrong!",result:"🏆 Result",safe:"✅ Safe",danger:"⚠️ Scam!",warning:"⚠️ Suspicious"}
+};
+function langText(key){const lang=document.getElementById("lang")?.value||'kz';return texts[lang][key];}
+
+/* LOGIN / REGISTRATION */
+function registerOrLogin(){
+  const nick=document.getElementById("nickname").value.trim();
+  const pass=document.getElementById("password").value.trim();
+  const loginRes=document.getElementById("loginResult");
+  if(!nick||!pass){loginRes.innerText="Толық толтырыңыз!"; return;}
+  const users=JSON.parse(localStorage.getItem("meraUsers")||"{}");
+  if(users[nick] && users[nick]!==pass){loginRes.innerText="Қате пароль!";return;}
+  users[nick]=pass;
+  localStorage.setItem("meraUsers",JSON.stringify(users));
+  loginRes.innerText="Кіру сәтті!";
+  setTimeout(()=>{
+    document.getElementById("loginScreen").style.display="none";
+    document.getElementById("mainScreen").style.display="block";
+    document.getElementById("nicknameDisplay").innerText=nick;
+  },500);
+}
+
+/* TEXT CHECK */
+function checkMessage(){
+  let text=document.getElementById("message").value.toLowerCase();
+  let res=document.getElementById("result");
+  let score=0; let reasons=[];
+  const dangerWords=["код","password","cvv","дереу","тегін","ұтып","link",".xyz"];
+  dangerWords.forEach(w=>{if(text.includes(w)){score+=1;reasons.push(w);}});
+  if(score>=3){res.className="result danger"; res.innerHTML=langText('danger')+"<br>"+reasons.join(", ");} 
+  else if(score>=1){res.className="result warning"; res.innerHTML=langText('warning');} 
+  else{res.className="result safe"; res.innerHTML=langText('safe');}
+}
+
+/* LINK CHECK */
+function checkLink(){
+  let text=document.getElementById("message").value.toLowerCase();
+  let res=document.getElementById("result");
+  if(text.includes(".xyz")||text.includes("http://")||text.includes("https://")){res.className="result danger";res.innerHTML="⚠️ Қауіпті ссылка";}
+  else{res.className="result safe";res.innerHTML="✅ Қауіпсіз";}
+}
+
+/* OCR */
+async function analyzeImage(){
+  const file=document.getElementById("imageInput").files[0];
+  if(!file)return;
+  const { data:{ text } }=await Tesseract.recognize(file,'eng+rus');
+  document.getElementById("message").value+=text;
+}
+
+/* QUIZ */
+const quiz = [
+    ["Бейтаныс адам телефон арқылы OTP код сұрады. Не істеу керек?", 
+     "Беруге болады", "Беруге болмайды", 1],
+     
+    ["Банк ешқашан қандай ақпаратты сұрамайды?", 
+     "Интернет-банктегі пароль", "Сіздің туған күніңіз", 0],
+     
+    ["Қауіпсіз парольге қандай сипат тән?", 
+     "Тек сандардан тұратын, қысқа", "Үлкен әріп, кіші әріп, сандар мен символдардан тұратын ұзын пароль", 1],
+     
+    ["Сізге 'Сіз ұттыңыз, сыйлық алу үшін мына сілтемеге өтіңіз' деген SMS келді. Бұл не?", 
+     "Алаяқтық", "Нағыз сыйлық", 0],
+     
+    ["Бейтаныс адамдан келген электрондық поштадағы сілтемеге басу керек пе?", 
+     "Иә, тезірек басу керек", "Жоқ, ашпау керек", 1],
+     
+    ["Public Wi-Fi-ға қосылғанда не істеу қажет?", 
+     "VPN қолдану және HTTPS сайттарын ғана ашу", "Ештеңе істемей, бәріне сену", 0],
+     
+    ["Бейтаныс адам карточкаңыздың CVV кодын сұрады. Не істеу керек?", 
+     "Беруге болады", "Бермеу керек", 1],
+     
+    ["Хакерлер көбіне не істейді?", 
+     "Алаяқтықпен ақша немесе деректерді алу", "Тек компьютерді тезірек жаңарту", 0],
+     
+    ["Email-да күмәнді файл келді. Не істеу керек?", 
+     "Ашу және бағдарламаны орнату", "Ашпау және жою немесе карантинге қою", 1],
+     
+    ["Бұл сайт сізге ұнадыма,пайдалы болдыма?", 
+     "ЖОҚ", "ИЯ,OF COURSE,ДА", 1]
+];
+
+let index=0,score=0;
+function loadQuestion(){let q=quiz[index];document.getElementById("question").innerText=q[0];document.getElementById("opt0").innerText=q[1];document.getElementById("opt1").innerText=q[2];document.getElementById("restartBtn").style.display="none";}
+function answer(i){let correct=quiz[index][3];let res=document.getElementById("quizResult");if(i===correct){score++; res.innerHTML=langText('correct');} else{res.innerHTML=langText('wrong');} index++;if(index<quiz.length){setTimeout(()=>{res.innerHTML="";loadQuestion();},1000);} else{res.innerHTML=langText('result')+": "+score+"/"+quiz.length;document.getElementById("restartBtn").style.display="block";}}
+function restartQuiz(){index=0;score=0;loadQuestion();document.getElementById("quizResult").innerHTML="";}
+loadQuestion();
+
+function updateTexts(){/* placeholder for future multi-language adjustments */}
+</script>
+</body>
+</html>
